@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source
 COPY vault_server.py .
 COPY cookie_vault.py .
+COPY github_storage.py .
 
 # Persistent data dir
 RUN mkdir -p /data
