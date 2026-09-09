@@ -6,16 +6,18 @@ services:
     region: oregon
     branch: main
     dockerfilePath: ./Dockerfile
-    disk:
-      name: vault-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: VAULT_ADMIN_TOKEN
         generateValue: true
       - key: VAULT_SESSION_TTL
         value: "3600"
+      - key: GITHUB_REPO
+        value: "hoanghaiminh2004-rgb/vault-may-chu"
+      - key: GITHUB_BRANCH
+        value: "main"
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: GITHUB_TOKEN
+        sync: false
     healthCheckPath: /health
     autoDeploy: true

@@ -48,3 +48,15 @@ Copy URL này, mở admin_app → bấm "Cấp User" → sửa Server URL = URL 
 - **Dùng nhiều user** → nên upgrade lên Starter plan ($7/tháng, không sleep) nếu mày muốn 24/7.
 - **Bảo mật**: Token admin KHÔNG share cho user. Token này chỉ admin app dùng để cấp user.
 - **Backup**: Vào Render dashboard → Disks → Download để backup users.json + vaults/.
+
+## ⚠️ QUAN TRỌNG: Thêm GITHUB_TOKEN trên Render
+
+Vì Render Free không có persistent disk, server lưu data vào GitHub repo. Cần set `GITHUB_TOKEN` trên Render:
+
+1. Vào https://github.com/settings/tokens → dùng token `render-deploy` đã tạo
+2. Quay Render Dashboard → Service `vault-may-chu` → **Environment** tab
+3. Bấm **"Add Environment Variable"**:
+   - **Key**: `GITHUB_TOKEN`
+   - **Value**: dán token `render-deploy` (loại Fine-grained, có quyền Contents: Read and write trên repo `vault-may-chu`)
+4. Bấm **Save** → Render tự re-deploy
+5. Đợi 1-2 phút → check Logs: thấy `[storage] Using GitHub repo for data persistence` là OK

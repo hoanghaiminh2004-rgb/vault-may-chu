@@ -63,6 +63,20 @@ PORT = int(os.environ.get("PORT", os.environ.get("VAULT_PORT", "7777")))
 # Session timeout: 1h (neu user app tat dot ngot, session stale sau 1h)
 SESSION_TTL = int(os.environ.get("VAULT_SESSION_TTL", "3600"))
 
+# Storage backend: neu co GITHUB_TOKEN → luu tren GitHub (free, persistent)
+# Nếu không → dùng local disk
+try:
+    import github_storage
+    if github_storage.is_enabled():
+        USE_GITHUB = True
+        print("[storage] Using GitHub repo for data persistence (FREE, no disk needed)")
+    else:
+        USE_GITHUB = False
+        print("[storage] Using local disk (no GITHUB_TOKEN set)")
+except ImportError:
+    USE_GITHUB = False
+    print("[storage] github_storage.py not found, using local disk")
+
 
 def _hash_password(password: str, salt: bytes) -> str:
     """Hash user password voi salt rieng de luu trong users.json."""
@@ -73,6 +87,8 @@ def _hash_password(password: str, salt: bytes) -> str:
 
 
 def _ensure_dirs():
+    if USE_GITHUB:
+        return  # GitHub auto tao file
     os.makedirs(VAULTS_DIR, exist_ok=True)
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, "w", encoding="utf-8") as f:
@@ -84,24 +100,47 @@ def _ensure_dirs():
 
 def _load_users() -> dict:
     _ensure_dirs()
-    with open(USERS_FILE, encoding="utf-8") as f:
-        return json.load(f)
+    if USE_GITHUB:
+        try:
+            content = github_storage.read_file("data/users.json")
+            return json.loads(content) if content else {}
+        except Exception as e:
+            print(f"[load_users] GitHub err: {e}")
+            return {}
+    else:
+        with open(USERS_FILE, encoding="utf-8") as f:
+            return json.load(f)
 
 
 def _save_users(users: dict):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+    if USE_GITHUB:
+        try:
+            github_storage.write_file("data/users.json",
+                json.dumps(users, ensure_ascii=False, indent=2),
+                commit_msg=f"update users.json ({len(users)} users)")
+        except Exception as e:
+            print(f"[save_users] GitHub err: {e}")
+    else:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
 
 
 def _load_sessions() -> dict:
     """{email: {session_id, started_at, last_heartbeat, ip}}.
     Cleanup session stale (last_heartbeat + SESSION_TTL < now) truoc khi return."""
     _ensure_dirs()
-    try:
-        with open(SESSIONS_FILE, encoding="utf-8") as f:
-            sessions = json.load(f)
-    except Exception:
-        sessions = {}
+    if USE_GITHUB:
+        try:
+            content = github_storage.read_file("data/active_sessions.json")
+            sessions = json.loads(content) if content else {}
+        except Exception:
+            sessions = {}
+    else:
+        try:
+            with open(SESSIONS_FILE, encoding="utf-8") as f:
+                sessions = json.load(f)
+        except Exception:
+            sessions = {}
     now = time.time()
     cleaned = {}
     for email, s in sessions.items():
@@ -113,8 +152,49 @@ def _load_sessions() -> dict:
 
 
 def _save_sessions(sessions: dict):
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(sessions, f, ensure_ascii=False, indent=2)
+    if USE_GITHUB:
+        try:
+            github_storage.write_file("data/active_sessions.json",
+                json.dumps(sessions, ensure_ascii=False, indent=2),
+                commit_msg=f"update sessions ({len(sessions)} active)")
+        except Exception as e:
+            print(f"[save_sessions] GitHub err: {e}")
+    else:
+        with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, ensure_ascii=False, indent=2)
+
+
+def _vault_path(filename: str) -> str:
+    """Tra ve path tuong doi (GitHub) hoac tuyet doi (local)."""
+    if USE_GITHUB:
+        return f"data/vaults/{filename}"
+    return os.path.join(VAULTS_DIR, filename)
+
+
+def _read_vault(filename: str) -> bytes:
+    if USE_GITHUB:
+        return github_storage.read_bytes(_vault_path(filename))
+    with open(os.path.join(VAULTS_DIR, filename), "rb") as f:
+        return f.read()
+
+
+def _write_vault(filename: str, data: bytes):
+    if USE_GITHUB:
+        github_storage.write_bytes(_vault_path(filename), data,
+                                     commit_msg=f"vault {filename}")
+    else:
+        with open(os.path.join(VAULTS_DIR, filename), "wb") as f:
+            f.write(data)
+
+
+def _delete_vault(filename: str):
+    if USE_GITHUB:
+        github_storage.delete_file(_vault_path(filename),
+                                     commit_msg=f"delete vault {filename}")
+    else:
+        vf = os.path.join(VAULTS_DIR, filename)
+        if os.path.exists(vf):
+            os.unlink(vf)
 
 
 def _get_active_session(email: str):
@@ -285,11 +365,9 @@ class VaultHandler(BaseHTTPRequestHandler):
                 })
             # Force: clear session cu, cho phep login moi
         # Read vault file
-        vf = os.path.join(VAULTS_DIR, u["vault_file"])
-        if not os.path.exists(vf):
+        stored = _read_vault(u["vault_file"])
+        if not stored:
             return self._send(404, {"error": "vault not assigned"})
-        with open(vf, "rb") as f:
-            stored = f.read()
         # Giai ma admin layer
         try:
             admin_salt = stored[:16]
@@ -397,14 +475,13 @@ class VaultHandler(BaseHTTPRequestHandler):
         except Exception:
             return self._send(400, {"error": "vault_b64 invalid"})
         # Save vault riêng cho user
-        vf = os.path.join(VAULTS_DIR, f"{email.replace('@','_at_')}.bin")
-        with open(vf, "wb") as f:
-            f.write(final_bytes)
-        users[email]["vault_file"] = os.path.basename(vf)
+        vault_filename = f"{email.replace('@','_at_')}.bin"
+        _write_vault(vault_filename, final_bytes)
+        users[email]["vault_file"] = vault_filename
         _save_users(users)
         return self._send(200, {"ok": True, "email": email,
                                  "vault_size": len(final_bytes),
-                                 "vault_file": os.path.basename(vf)})
+                                 "vault_file": vault_filename})
 
 
 # ============================================================ #
