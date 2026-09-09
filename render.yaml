@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: vault-may-chu
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    disk:
+      name: vault-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: VAULT_ADMIN_TOKEN
+        generateValue: true
+      - key: VAULT_SESSION_TTL
+        value: "3600"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /health
+    autoDeploy: true
