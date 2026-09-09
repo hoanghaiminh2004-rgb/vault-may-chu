@@ -1,4 +1,5 @@
 # Vault server - lightweight Python image
+# Force rebuild: 2026-09-09-v2 (fix github_storage import)
 FROM python:3.11-slim
 
 WORKDIR /app
