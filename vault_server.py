@@ -86,6 +86,35 @@ def _hash_password(password: str, salt: bytes) -> str:
     return h.hexdigest()
 
 
+def _apply_user_license(vault_json: bytes, user_exp: float, user_days: int) -> bytes:
+    """Ghi hạn THẬT của user vào mọi acc trong vault trước khi phát.
+
+    Vault do admin build chung cho nhiều user nên expires_at bên trong là ngày
+    build + active_days của admin (vd 30 ngày). Không sửa thì user được cấp 1
+    ngày vẫn hiện "Còn: 29 ngày" và acc hết hạn theo license không bị loại.
+    Dùng min(hạn acc, hạn user): acc chết do cookie hết hiệu lực vẫn bị loại đúng.
+    """
+    if not user_exp:
+        return vault_json
+    try:
+        payload = json.loads(vault_json.decode("utf-8"))
+    except Exception:
+        return vault_json          # không phải JSON (vault lạ) -> giữ nguyên
+    try:
+        accounts = payload.get("accounts") or {}
+        for _svc, accs in accounts.items():
+            for acc in accs:
+                acc_exp = float(acc.get("expires_at", 0) or 0)
+                acc["expires_at"] = min(acc_exp, user_exp) if acc_exp > 0 else user_exp
+                acc["active_days"] = user_days
+        payload["active_days_default"] = user_days
+        payload["license_expires_at"] = user_exp
+        return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    except Exception as e:
+        print(f"[license] inject skip: {e}")
+        return vault_json
+
+
 def _ensure_dirs():
     if USE_GITHUB:
         return  # GitHub auto tao file
@@ -340,6 +369,25 @@ class VaultHandler(BaseHTTPRequestHandler):
         if not email or not password:
             return self._send(400, {"error": "email + password required"})
         users = _load_users()
+        # 10-09: Check expires_at — hết hạn → từ chối + xóa session
+        if email in users:
+            u_check = users[email]
+            exp = u_check.get("expires_at", 0)
+            if exp and exp < time.time():
+                # Hết hạn → xóa user, vault, session
+                old_vault = u_check.get("vault_file", "")
+                if old_vault:
+                    try:
+                        os.remove(os.path.join(VAULTS_DIR, old_vault))
+                    except Exception:
+                        pass
+                _clear_session(email)
+                del users[email]
+                _save_users(users)
+                return self._send(401, {
+                    "error": "expired",
+                    "message": f"Acc '{email}' đã hết hạn. Liên hệ admin gia hạn hoặc tạo acc mới."
+                })
         if email not in users:
             return self._send(401, {"error": "user not found"})
         u = users[email]
@@ -365,9 +413,17 @@ class VaultHandler(BaseHTTPRequestHandler):
                 })
             # Force: clear session cu, cho phep login moi
         # Read vault file
-        stored = _read_vault(u["vault_file"])
+        vf = u.get("vault_file", "")
+        if not vf:
+            return self._send(404, {"error": "vault not assigned - admin chưa gán vault cho user này"})
+        try:
+            stored = _read_vault(vf)
+        except FileNotFoundError:
+            return self._send(404, {"error": "vault file missing - admin cần gán lại vault"})
+        except Exception as e:
+            return self._send(500, {"error": f"vault read error: {str(e)[:100]}"})
         if not stored:
-            return self._send(404, {"error": "vault not assigned"})
+            return self._send(404, {"error": "vault empty"})
         # Giai ma admin layer
         try:
             admin_salt = stored[:16]
@@ -376,6 +432,11 @@ class VaultHandler(BaseHTTPRequestHandler):
             vault_bytes = _aes_decrypt(admin_ct, admin_key)
         except Exception:
             vault_bytes = stored
+        # 10-09: ép hạn của USER vào từng acc (trước đây user được cấp 1 ngày
+        # vẫn thấy "Còn: 29 ngày" vì dùng expires_at lúc admin build vault).
+        vault_bytes = _apply_user_license(vault_bytes,
+                                          u.get("expires_at", 0),
+                                          u.get("active_days", 30))
         # Re-encrypt vault bang pass user
         new_salt = secrets.token_bytes(16)
         key = _derive_key(password, new_salt)
@@ -423,11 +484,34 @@ class VaultHandler(BaseHTTPRequestHandler):
         email = (body.get("email", "") or "").lower().strip()
         password = body.get("password", "")
         active_days = int(body.get("active_days", 30))
+        force = body.get("force", False) in (True, "true", "1", 1)
         if not email or not password:
             return self._send(400, {"error": "email + password required"})
         users = _load_users()
         if email in users:
-            return self._send(409, {"error": "user already exists"})
+            old = users[email]
+            old_exp = old.get("expires_at", 0)
+            now = time.time()
+            if old_exp > now and not force:
+                # Còn hạn + không force → từ chối
+                days_left = int((old_exp - now) / 86400) + 1
+                return self._send(409, {
+                    "error": "user already exists",
+                    "active": True,
+                    "expires_at": old_exp,
+                    "days_left": days_left,
+                    "message": f"User còn {days_left} ngày. Đợi hết hạn hoặc bấm 'Xóa User cũ' trước."
+                })
+            # Hết hạn HOẶC force → xóa user cũ + vault cũ + session cũ
+            old_vault = old.get("vault_file", "")
+            if old_vault:
+                try:
+                    os.remove(os.path.join(VAULTS_DIR, old_vault))
+                except Exception:
+                    pass
+            _clear_session(email)
+            del users[email]
+            _save_users(users)
         salt = secrets.token_bytes(16)
         users[email] = {
             "password_hash": _hash_password(password, salt),
@@ -438,7 +522,12 @@ class VaultHandler(BaseHTTPRequestHandler):
             "vault_file": "",  # gan sau
         }
         _save_users(users)
-        return self._send(200, {"ok": True, "email": email, "active_days": active_days})
+        return self._send(200, {
+            "ok": True,
+            "email": email,
+            "active_days": active_days,
+            "replaced": email in users and users[email].get("created_at", 0) < 5,  # just created
+        })
 
     def _handle_assign_vault(self):
         body = self._read_body()
