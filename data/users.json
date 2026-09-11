@@ -14,5 +14,13 @@
     "created_at": 1789095214.0083556,
     "expires_at": 1789181614.008356,
     "vault_file": "nanoaaa_at_mail.com.bin"
+  },
+  "nona@gmail.vn123": {
+    "password_hash": "25b8150e90c5a9fa8c179f71235980c22feec68d829e2b7f7595990725f49a2a",
+    "salt_hex": "6f39bea2578787ecfff54681716c2d06",
+    "active_days": 1,
+    "created_at": 1789104523.034986,
+    "expires_at": 1789190923.0349863,
+    "vault_file": ""
   }
 }
