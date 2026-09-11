@@ -1,0 +1,10 @@
+{
+  "test_keepalive@mail.com": {
+    "password_hash": "a3a54ff48d439ca50b9b14e8391476f89ebc464a7e94151255ebed8b82a91c88",
+    "salt_hex": "b74b41535e784e203ddee10bcff52a6a",
+    "active_days": 30,
+    "created_at": 1789094467.407424,
+    "expires_at": 1791686467.4074244,
+    "vault_file": ""
+  }
+}
