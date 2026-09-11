@@ -6,5 +6,13 @@
     "created_at": 1789094467.407424,
     "expires_at": 1791686467.4074244,
     "vault_file": "test_keepalive_at_mail.com.bin"
+  },
+  "nanoaaa@mail.com": {
+    "password_hash": "ec2acaf24d77c2ba18d262ad1e7525a4d9cd8965cb7aed4b2e3462ca5d969652",
+    "salt_hex": "edda0877e6fb55d6ce22a49b7f0e480d",
+    "active_days": 30,
+    "created_at": 1789094530.6874897,
+    "expires_at": 1791686530.6874902,
+    "vault_file": ""
   }
 }
