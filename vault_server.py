@@ -44,6 +44,7 @@ import secrets
 import argparse
 import base64
 import threading
+import requests
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -266,6 +267,212 @@ def _heartbeat_session(email: str, session_id: str):
 
 
 # ============================================================ #
+#  Keep-Alive Engine (Tự động gia hạn Cookie Google 24/7)     #
+# ============================================================ #
+PROXY_URL = os.environ.get("VAULT_KEEP_ALIVE_PROXY", "")
+
+def _keepalive_single_account(acc: dict, proxy: str = "") -> dict:
+    """
+    Gửi tín hiệu hích nhẹ lên Google cho 1 tài khoản để gia hạn cookie:
+    1. Thiết lập Cookie jar từ danh sách cookies của tài khoản.
+    2. Gửi request GET giả lập Chrome tới https://flow.google.com/ và https://myaccount.google.com/?pli=1.
+    3. Hứng Set-Cookie và cập nhật các token xoay vòng (__Secure-1PSIDTS, __Secure-1PSIDRTS, SIDCC...).
+    4. Trả về thông tin kết quả.
+    """
+    cookies = acc.get("cookies", [])
+    if not cookies:
+        return {"ok": False, "status": "no_cookies", "updated_count": 0}
+
+    s = requests.Session()
+    target_proxy = proxy or PROXY_URL
+    if target_proxy:
+        s.proxies = {"http": target_proxy, "https": target_proxy}
+
+    # Nạp cookies vào session
+    for c in cookies:
+        name = c.get("name")
+        val = c.get("value")
+        if not name or val is None:
+            continue
+        domain = c.get("domain", ".google.com")
+        path = c.get("path", "/")
+        s.cookies.set(name, str(val), domain=domain, path=path)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    updated_count = 0
+    final_url = ""
+    is_live = False
+    details = ""
+
+    try:
+        # Bước 1: Ping Google Flow
+        r = s.get("https://flow.google.com/", headers=headers, timeout=25, allow_redirects=True)
+        final_url = r.url
+
+        # Bước 2: Ping Google Account để kích hoạt xoay vòng token PSIDTS/PSIDRTS
+        try:
+            s.get("https://myaccount.google.com/?pli=1", headers=headers, timeout=20, allow_redirects=True)
+        except Exception:
+            pass
+
+        # Phân tích xem session còn sống hay đã bị bắt đăng nhập
+        if "accounts.google.com" in final_url and ("signin" in final_url or "rejected" in final_url):
+            is_live = False
+            details = "Google yêu cầu đăng nhập lại (Signed out)"
+        elif "flow.google.com" in final_url or "myaccount.google.com" in final_url:
+            is_live = True
+            details = f"Session sống tốt ({final_url[:50]})"
+        else:
+            is_live = True
+            details = f"HTTP {r.status_code} ({final_url[:40]})"
+
+        # Cập nhật cookies trả về từ Google
+        now = time.time()
+        for new_c in s.cookies:
+            if not new_c.name or not new_c.value:
+                continue
+            matched = False
+            for old_c in cookies:
+                if old_c.get("name") == new_c.name:
+                    matched = True
+                    # Kiểm tra xem có thay đổi value hoặc expires không
+                    if old_c.get("value") != new_c.value or (new_c.expires and old_c.get("expires") != new_c.expires):
+                        old_c["value"] = new_c.value
+                        old_c["expires"] = float(new_c.expires or (now + 86400 * 30))
+                        updated_count += 1
+                    break
+            if not matched:
+                cookies.append({
+                    "name": new_c.name,
+                    "value": new_c.value,
+                    "domain": new_c.domain or ".google.com",
+                    "path": new_c.path or "/",
+                    "expires": float(new_c.expires or (now + 86400 * 30)),
+                    "secure": getattr(new_c, "secure", True),
+                    "httpOnly": bool(new_c.has_nonstandard_attr("HttpOnly")),
+                })
+                updated_count += 1
+
+        acc["last_keepalive"] = now
+        acc["last_keepalive_status"] = "live" if is_live else "signed_out"
+
+        return {
+            "ok": True,
+            "status": "live" if is_live else "signed_out",
+            "updated_count": updated_count,
+            "details": details,
+            "final_url": final_url[:80],
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "status": "network_error",
+            "updated_count": 0,
+            "details": str(e)[:100],
+        }
+
+
+def _refresh_all_vaults(proxy: str = "") -> dict:
+    """
+    Quét toàn bộ file vault của mọi user trên server, tự động hích Google và lưu lại.
+    """
+    users = _load_users()
+    processed_vaults = set()
+    total_accs_checked = 0
+    total_accs_updated = 0
+    results = []
+
+    for email, u in users.items():
+        vf = u.get("vault_file")
+        if not vf or vf in processed_vaults:
+            continue
+        processed_vaults.add(vf)
+        try:
+            stored = _read_vault(vf)
+            if not stored:
+                continue
+            admin_salt = stored[:16]
+            admin_ct = stored[16:]
+            admin_key = _derive_key("admin123", admin_salt)
+            vault_bytes = _aes_decrypt(admin_ct, admin_key)
+            payload = json.loads(vault_bytes.decode("utf-8"))
+        except Exception as e:
+            results.append({"vault": vf, "error": f"decrypt error: {str(e)[:100]}"})
+            continue
+
+        vault_updated = False
+        accounts = payload.get("accounts", {})
+        for svc in ("flow", "gemini", "chatgpt"):
+            for acc in accounts.get(svc, []):
+                if not acc.get("cookies"):
+                    continue
+                total_accs_checked += 1
+                res = _keepalive_single_account(acc, proxy=proxy or PROXY_URL)
+                if res.get("updated_count", 0) > 0:
+                    vault_updated = True
+                    total_accs_updated += 1
+                results.append({
+                    "vault": vf,
+                    "account_id": acc.get("id"),
+                    "service": svc,
+                    "status": res.get("status"),
+                    "updated_cookies": res.get("updated_count", 0),
+                    "details": res.get("details", "")
+                })
+
+        # Nếu có cookie mới -> lưu đè lại vào vault trên server
+        if vault_updated:
+            try:
+                new_salt = os.urandom(16)
+                new_key = _derive_key("admin123", new_salt)
+                payload_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+                new_ct = _aes_encrypt(payload_bytes, new_key)
+                _write_vault(vf, new_salt + new_ct)
+            except Exception as e:
+                results.append({"vault": vf, "save_error": str(e)[:100]})
+
+    return {
+        "ok": True,
+        "timestamp": time.time(),
+        "time_str": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "vaults_checked": len(processed_vaults),
+        "total_accounts_checked": total_accs_checked,
+        "total_accounts_refreshed": total_accs_updated,
+        "results": results,
+    }
+
+
+def _start_keepalive_scheduler(interval_seconds: int = 2700):
+    """Chạy luồng ngầm tự động hích cookie mỗi 45 phút."""
+    def loop():
+        time.sleep(30)
+        while True:
+            try:
+                print(f"[{time.strftime('%H:%M:%S')}] [keepalive] Khởi động chu kỳ hích cookie tự động...")
+                rep = _refresh_all_vaults()
+                print(f"[{time.strftime('%H:%M:%S')}] [keepalive] Đã duyệt {rep.get('total_accounts_checked')} accs, làm mới {rep.get('total_accounts_refreshed')} accs.")
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] [keepalive] Lỗi: {e}")
+            time.sleep(interval_seconds)
+    t = threading.Thread(target=loop, daemon=True, name="keepalive-scheduler")
+    t.start()
+
+
+# ============================================================ #
 #  HTTP Request Handler                                         #
 # ============================================================ #
 class VaultHandler(BaseHTTPRequestHandler):
@@ -324,6 +531,11 @@ class VaultHandler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/health":
             return self._send(200, {"ok": True, "time": time.time()})
+        if u.path in ("/api/keep_alive", "/api/keepalive", "/keepalive"):
+            qs = parse_qs(u.query)
+            proxy_override = qs.get("proxy", [""])[0]
+            rep = _refresh_all_vaults(proxy=proxy_override)
+            return self._send(200, rep)
         if u.path == "/vault":
             return self._handle_get_vault(parse_qs(u.query))
         if u.path == "/heartbeat":
@@ -588,10 +800,12 @@ def main():
 
     _ensure_dirs()
     server = ThreadingHTTPServer((host, port), VaultHandler)
+    _start_keepalive_scheduler()
     print(f"🔒 Vault server chay ở http://{host}:{port}")
     print(f"  Data dir: {DATA_DIR}")
     print(f"  Admin token: {'***' + ADMIN_TOKEN[-8:] if len(ADMIN_TOKEN) > 8 else ADMIN_TOKEN}")
     print(f"  Health: GET /health")
+    print(f"  Keep-Alive: GET /api/keep_alive")
     print(f"  Get vault: GET /vault?email=X&password=Y")
     print(f"  Add user: POST /admin/user + X-Admin-Token")
     print(f"  Assign vault: POST /admin/assign-vault + X-Admin-Token")
