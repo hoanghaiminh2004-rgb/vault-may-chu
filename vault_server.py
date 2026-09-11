@@ -391,15 +391,22 @@ def _refresh_all_vaults(proxy: str = "") -> dict:
     Quét toàn bộ file vault của mọi user trên server, tự động hích Google và lưu lại.
     """
     users = _load_users()
+    vault_files_to_check = set()
+    for email, u in users.items():
+        vf = u.get("vault_file")
+        if vf:
+            vault_files_to_check.add(vf)
+    if not USE_GITHUB and os.path.exists(VAULTS_DIR):
+        for fname in os.listdir(VAULTS_DIR):
+            if fname.endswith(".bin"):
+                vault_files_to_check.add(fname)
+
     processed_vaults = set()
     total_accs_checked = 0
     total_accs_updated = 0
     results = []
 
-    for email, u in users.items():
-        vf = u.get("vault_file")
-        if not vf or vf in processed_vaults:
-            continue
+    for vf in vault_files_to_check:
         processed_vaults.add(vf)
         try:
             stored = _read_vault(vf)
