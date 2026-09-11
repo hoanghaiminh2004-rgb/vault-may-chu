@@ -4,5 +4,11 @@
     "started_at": 1789149433.281424,
     "last_heartbeat": 1789149433.2814243,
     "ip": "127.0.0.1"
+  },
+  "sa@mail.com": {
+    "session_id": "sX1lTvLvVyQEWwccq11DabyCVUQzmsK-",
+    "started_at": 1789149746.9452474,
+    "last_heartbeat": 1789149746.9452477,
+    "ip": "127.0.0.1"
   }
 }
