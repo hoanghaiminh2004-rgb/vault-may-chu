@@ -38,5 +38,13 @@
     "created_at": 1789138584.6404245,
     "expires_at": 1791730584.6404247,
     "vault_file": "hm_at_mail.vn.bin"
+  },
+  "sa@mail.com": {
+    "password_hash": "1e4089ec5bde94a3c2c37976a52079bc835cbb4e98c1d8cee203cf74c099dac8",
+    "salt_hex": "ee70540f38448ee8b049880eedcf82d3",
+    "active_days": 2,
+    "created_at": 1789149657.741307,
+    "expires_at": 1789322457.7413075,
+    "vault_file": ""
   }
 }
