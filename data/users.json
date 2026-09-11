@@ -30,5 +30,13 @@
     "created_at": 1789106013.1607518,
     "expires_at": 1789192413.160752,
     "vault_file": "anhon_at_mail.com.bin"
+  },
+  "hm@mail.vn": {
+    "password_hash": "26cdc210662c25c3b73aa64d4b053ba01917b8e0bad6a5ada86293809fe95fc9",
+    "salt_hex": "eb3e06539653fe8aab9a72dd132956b3",
+    "active_days": 30,
+    "created_at": 1789138584.6404245,
+    "expires_at": 1791730584.6404247,
+    "vault_file": ""
   }
 }
