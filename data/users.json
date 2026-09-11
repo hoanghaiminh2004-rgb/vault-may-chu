@@ -22,5 +22,13 @@
     "created_at": 1789104523.034986,
     "expires_at": 1789190923.0349863,
     "vault_file": "nona_at_gmail.vn123.bin"
+  },
+  "anhon@mail.com": {
+    "password_hash": "b2fb7da67fe99e2d61561506601fd59070cd6b39505d5131915381d1ad1ce539",
+    "salt_hex": "f51bb41ca15a71beacd3ed4e65d06a31",
+    "active_days": 1,
+    "created_at": 1789106013.1607518,
+    "expires_at": 1789192413.160752,
+    "vault_file": ""
   }
 }
