@@ -1,14 +1,1 @@
-{
-  "nanoaaa@mail.com": {
-    "session_id": "VdAsqDfHIuyJk3UJUH78iRHRVm7xTudn",
-    "started_at": 1789104539.6201994,
-    "last_heartbeat": 1789104539.6201997,
-    "ip": "127.0.0.1"
-  },
-  "anhon@mail.com": {
-    "session_id": "aZ9axxM3iy93VTWIDBwEgJlq3660yZrh",
-    "started_at": 1789106028.286309,
-    "last_heartbeat": 1789106028.286309,
-    "ip": "127.0.0.1"
-  }
-}
+{}
