@@ -62,5 +62,13 @@
     "created_at": 1789214315.5269241,
     "expires_at": 1789300715.5269244,
     "vault_file": "_at_mail.com.bin"
+  },
+  "babi@mail.com": {
+    "password_hash": "2928d1eff0af1f0f033954315d72363ffb3d9a3a34c62f7e56fa93f65746e1e2",
+    "salt_hex": "5479c4184c6226ad714e7fc45b19a91f",
+    "active_days": 1,
+    "created_at": 1789237685.6973803,
+    "expires_at": 1789324085.6973805,
+    "vault_file": ""
   }
 }
