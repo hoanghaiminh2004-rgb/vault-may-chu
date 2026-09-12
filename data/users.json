@@ -46,5 +46,13 @@
     "created_at": 1789149657.741307,
     "expires_at": 1789322457.7413075,
     "vault_file": "sa_at_mail.com.bin"
+  },
+  "nano@mail.com": {
+    "password_hash": "1b5cecfcc943ce698f7b4167e12a0ae6c46107d023636c6721b8d16c2455d21d",
+    "salt_hex": "2d1145418f09e2c5e22b3ef4e1a4c68b",
+    "active_days": 1,
+    "created_at": 1789210758.6702156,
+    "expires_at": 1789297158.6702158,
+    "vault_file": ""
   }
 }
