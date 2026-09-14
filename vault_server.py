@@ -807,7 +807,8 @@ def main():
 
     _ensure_dirs()
     server = ThreadingHTTPServer((host, port), VaultHandler)
-    _start_keepalive_scheduler()
+    # VÔ HIỆU HÓA: Không để server Render ping Google bằng IP Datacenter làm chết session người dùng
+    # _start_keepalive_scheduler()
     print(f"🔒 Vault server chay ở http://{host}:{port}")
     print(f"  Data dir: {DATA_DIR}")
     print(f"  Admin token: {'***' + ADMIN_TOKEN[-8:] if len(ADMIN_TOKEN) > 8 else ADMIN_TOKEN}")
