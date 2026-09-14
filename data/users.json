@@ -1,0 +1,10 @@
+{
+  "casv@mail.com": {
+    "password_hash": "2e49dbaf9f7a50f4e4da9014f82fa59daf8dfedc84e6e4549d9333c1171f28a8",
+    "salt_hex": "77471f3d0b6cd7a7229d356ba3cd32c4",
+    "active_days": 1,
+    "created_at": 1789393660.5610986,
+    "expires_at": 1789480060.5610993,
+    "vault_file": ""
+  }
+}
