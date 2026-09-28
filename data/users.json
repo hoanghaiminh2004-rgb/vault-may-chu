@@ -14,5 +14,13 @@
     "created_at": 1789485591.9929357,
     "expires_at": 1789571991.992936,
     "vault_file": "test_at_.gmail.bin"
+  },
+  "hm24@vn": {
+    "password_hash": "c377859f64c40e63ce428169fa033231e84ced89bde1751d7b91b41574b3b38f",
+    "salt_hex": "2dd08cd36e313da4def8a680d3ccc709",
+    "active_days": 1,
+    "created_at": 1790577656.3342535,
+    "expires_at": 1790664056.3342543,
+    "vault_file": ""
   }
 }
